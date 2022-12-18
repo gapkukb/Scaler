@@ -11,6 +11,19 @@ interface ScalerProps {
 	onUpdate?(value: number): void;
 }
 
+function throttle(func: Function, limit: number) {
+	let inThrottle: any;
+	return function (this: any) {
+		const args = arguments;
+		const context = this;
+		if (!inThrottle) {
+			func.apply(context, args);
+			inThrottle = true;
+			setTimeout(() => (inThrottle = false), limit);
+		}
+	};
+}
+
 class Scaler {
 	private _value = 0;
 	declare canvas: HTMLCanvasElement;
@@ -18,7 +31,9 @@ class Scaler {
 	declare decimal: number;
 	declare width: number;
 	declare height: number;
-
+	declare toucher: any;
+	touching = false;
+	val: number = 0;
 	constructor(props: ScalerProps) {
 		this.init(props);
 		this.resize = this.resize.bind(this);
@@ -27,6 +42,8 @@ class Scaler {
 		this.decimal = props.decimal || 1;
 		this.value = props.defaultValue || 0;
 		window.addEventListener("resize", this.resize, false);
+		this.bindTouch();
+		new TouchEvents(this.canvas);
 	}
 	private init({ element, background }: ScalerProps) {
 		let canvas: HTMLCanvasElement;
@@ -77,11 +94,45 @@ class Scaler {
 		ctx.translate(0.5, 0.5);
 	}
 
+	private bindTouch() {
+		const self = this;
+		this.toucher = new PhyTouch({
+			touch: this.canvas, //反馈触摸的dom
+			vertical: false, //不必需，默认是true代表监听竖直方向touch
+			// target: this, //运动的对象
+			// property: "value", //被运动的属性
+			min: 0, //不必需,运动属性的最小值
+			// max: 100, //不必需,滚动属性的最大值
+			sensitivity: -1, //不必需,触摸区域的灵敏度，默认值为1，可以为负数
+			factor: 0.5, //不必需,表示触摸位移运动位移与被运动属性映射关系，默认值是1
+			moveFactor: 0.5, //不必需,表示touchmove位移与被运动属性映射关系，默认值是1
+			// outFactor: 0.1,
+			step: 0.01, //用于校正到step的整数倍
+			// bindSelf: false,
+			// maxSpeed: 1, //不必需，触摸反馈的最大速度限制
+			value: 0,
+			time: 300,
+			change: throttle((value: number) => {
+				self.value = Math.floor(value);
+			}, 1000 / 30),
+			// touchStart(evt: TouchEvent, value: number) {},
+			// touchMove(evt: TouchEvent, value: number) {},
+			// touchEnd(evt: TouchEvent, value: number) {},
+			// tap(evt: TouchEvent, value: number) {},
+			// pressMove(evt: TouchEvent, value: number) {},
+			animationEnd(value: number) {
+				self.value = Math.floor(value);
+			},
+		});
+	}
+
 	resize() {
 		this.setSize();
 		this.render();
 	}
-
+	to(target: number, duration?: number) {
+		this.toucher.to(target, duration);
+	}
 	destory() {
 		window.removeEventListener("resize", this.resize, false);
 		this.canvas = null as any;
@@ -133,45 +184,35 @@ class Scaler {
 	private precisionize(n: number) {
 		return Math.round(n * this.precision) / this.precision;
 	}
-	private drawMM(ctx: CanvasRenderingContext2D, x: number, h: number) {
-		ctx.moveTo(x, h);
-		ctx.lineTo(x, h - 4);
+
+	private drawScale(ctx: CanvasRenderingContext2D, value: number, x: number, y: number, h: number) {
+		ctx.moveTo(x, y);
+		ctx.lineTo(x, y - h);
 	}
-	private drawCM(ctx: CanvasRenderingContext2D, value: number, x: number, h: number) {
-		ctx.moveTo(x, h);
-		ctx.lineTo(x, h - 10);
-		this.drawCMText(ctx, value, x, h);
-	}
-	private drawCMText(ctx: CanvasRenderingContext2D, value: number, x: number, h: number) {
-		ctx.fillText(value.toString(), x, h - 20);
+
+	private drawText(ctx: CanvasRenderingContext2D, value: number, x: number, y: number, h: number) {
+		ctx.fillText(value.toString(), x, y - h);
 	}
 	/** 绘制刻度 */
 	private drawScales() {
-		const { ctx, cx, height } = this;
-		const half = Math.ceil(this.length / 2);
+		const { ctx, cx, height, length, drawScale, drawText } = this;
+		const half = Math.ceil(length / 2);
 		const value = this.value;
 		ctx.beginPath();
-		// 绘制左侧 - 递减
-		for (let i = 0, len = this.length; i < len; i++) {
-			const x = Math.round(cx - i * mm2px);
-			const val = value - i;
+		for (let i = 0; i < length; i++) {
+			const x = i < half ? Math.round(cx - i * mm2px) : Math.round(cx + (i - half) * mm2px);
+			const val = i < half ? value - i : value + i - half;
+			let h = 4;
 			if (val % 10 === 0) {
-				this.drawCM(ctx, val, x, height);
-			} else {
-				this.drawMM(ctx, x, height);
+				h = 10;
+				drawText(ctx, val, x, height, 18);
+			} else if (val % 5 === 0) {
+				h = 7;
 			}
+
+			drawScale(ctx, val, x, height, h);
 		}
 
-		// 绘制右侧 - 递增
-		for (let i = 1; i < half; i++) {
-			const x = Math.round(cx + i * mm2px);
-			const val = value + i;
-			if (val % 10 === 0) {
-				this.drawCM(ctx, val, x, height);
-			} else {
-				this.drawMM(ctx, x, height);
-			}
-		}
 		ctx.stroke();
 	}
 	/** 绘制原点 */
@@ -200,9 +241,19 @@ class Scaler {
 const scaler = new Scaler({
 	element: "#app",
 	background: "#000",
-	defaultValue: 83,
+	defaultValue: 0,
 });
 
-setTimeout(() => {
-	// scaler.value = 101;
-}, 3000);
+interface PhyTouch {
+	[k: string]: (evt: TouchEvent, value: number) => void;
+}
+declare class PhyTouch {
+	constructor(prop: any);
+}
+
+// let n = 1;
+// setInterval(() => {
+// 	scaler.to(n++);
+// }, 1000 / 60);
+
+// console.log(scaler.toucher);

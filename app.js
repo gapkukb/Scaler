@@ -1,8 +1,22 @@
 "use strict";
 const mm2px = 3.779528;
+function throttle(func, limit) {
+    let inThrottle;
+    return function () {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => (inThrottle = false), limit);
+        }
+    };
+}
 class Scaler {
     constructor(props) {
         this._value = 0;
+        this.touching = false;
+        this.val = 0;
         this.__timer = 0;
         this.init(props);
         this.resize = this.resize.bind(this);
@@ -11,6 +25,8 @@ class Scaler {
         this.decimal = props.decimal || 1;
         this.value = props.defaultValue || 0;
         window.addEventListener("resize", this.resize, false);
+        this.bindTouch();
+        new TouchEvents(this.canvas);
     }
     init({ element, background }) {
         let canvas;
@@ -59,9 +75,43 @@ class Scaler {
         ctx.lineWidth = 1;
         ctx.translate(0.5, 0.5);
     }
+    bindTouch() {
+        const self = this;
+        this.toucher = new PhyTouch({
+            touch: this.canvas,
+            vertical: false,
+            // target: this, //运动的对象
+            // property: "value", //被运动的属性
+            min: 0,
+            // max: 100, //不必需,滚动属性的最大值
+            sensitivity: -1,
+            factor: 0.5,
+            moveFactor: 0.5,
+            // outFactor: 0.1,
+            step: 0.01,
+            // bindSelf: false,
+            // maxSpeed: 1, //不必需，触摸反馈的最大速度限制
+            value: 0,
+            time: 300,
+            change: throttle((value) => {
+                self.value = Math.floor(value);
+            }, 1000 / 30),
+            // touchStart(evt: TouchEvent, value: number) {},
+            // touchMove(evt: TouchEvent, value: number) {},
+            // touchEnd(evt: TouchEvent, value: number) {},
+            // tap(evt: TouchEvent, value: number) {},
+            // pressMove(evt: TouchEvent, value: number) {},
+            animationEnd(value) {
+                self.value = Math.floor(value);
+            },
+        });
+    }
     resize() {
         this.setSize();
         this.render();
+    }
+    to(target, duration) {
+        this.toucher.to(target, duration);
     }
     destory() {
         window.removeEventListener("resize", this.resize, false);
@@ -112,45 +162,31 @@ class Scaler {
     precisionize(n) {
         return Math.round(n * this.precision) / this.precision;
     }
-    drawMM(ctx, x, h) {
-        ctx.moveTo(x, h);
-        ctx.lineTo(x, h - 4);
+    drawScale(ctx, value, x, y, h) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y - h);
     }
-    drawCM(ctx, value, x, h) {
-        ctx.moveTo(x, h);
-        ctx.lineTo(x, h - 10);
-        this.drawCMText(ctx, value, x, h);
-    }
-    drawCMText(ctx, value, x, h) {
-        ctx.fillText(value.toString(), x, h - 20);
+    drawText(ctx, value, x, y, h) {
+        ctx.fillText(value.toString(), x, y - h);
     }
     /** 绘制刻度 */
     drawScales() {
-        const { ctx, cx, height } = this;
-        const half = Math.ceil(this.length / 2);
+        const { ctx, cx, height, length, drawScale, drawText } = this;
+        const half = Math.ceil(length / 2);
         const value = this.value;
         ctx.beginPath();
-        // 绘制左侧 - 递减
-        for (let i = 0, len = this.length; i < len; i++) {
-            const x = Math.round(cx - i * mm2px);
-            const val = value - i;
+        for (let i = 0; i < length; i++) {
+            const x = i < half ? Math.round(cx - i * mm2px) : Math.round(cx + (i - half) * mm2px);
+            const val = i < half ? value - i : value + i - half;
+            let h = 4;
             if (val % 10 === 0) {
-                this.drawCM(ctx, val, x, height);
+                h = 10;
+                drawText(ctx, val, x, height, 18);
             }
-            else {
-                this.drawMM(ctx, x, height);
+            else if (val % 5 === 0) {
+                h = 7;
             }
-        }
-        // 绘制右侧 - 递增
-        for (let i = 1; i < half; i++) {
-            const x = Math.round(cx + i * mm2px);
-            const val = value + i;
-            if (val % 10 === 0) {
-                this.drawCM(ctx, val, x, height);
-            }
-            else {
-                this.drawMM(ctx, x, height);
-            }
+            drawScale(ctx, val, x, height, h);
         }
         ctx.stroke();
     }
@@ -178,8 +214,10 @@ class Scaler {
 const scaler = new Scaler({
     element: "#app",
     background: "#000",
-    defaultValue: 83,
+    defaultValue: 0,
 });
-setTimeout(() => {
-    // scaler.value = 101;
-}, 3000);
+// let n = 1;
+// setInterval(() => {
+// 	scaler.to(n++);
+// }, 1000 / 60);
+// console.log(scaler.toucher);
