@@ -2,7 +2,7 @@ const mm2px = 3.779528;
 
 interface ScalerProps {
 	defaultValue?: number;
-	decimal?: number;
+	scale?: number;
 	element: string | Element;
 	width?: number;
 	height?: number;
@@ -25,21 +25,21 @@ function throttle(func: Function, limit: number) {
 }
 
 class Scaler {
-	private _value = 0;
 	declare canvas: HTMLCanvasElement;
 	declare ctx: CanvasRenderingContext2D;
-	declare decimal: number;
+	declare scale: number;
 	declare width: number;
 	declare height: number;
-	declare toucher: any;
-	touching = false;
-	val: number = 0;
+	declare animation: any;
+
+	private _value = 0;
+
 	constructor(props: ScalerProps) {
 		this.init(props);
 		this.resize = this.resize.bind(this);
 		this.setSize();
 		this.setGlobalStyle();
-		this.decimal = props.decimal || 1;
+		this.scale = props.scale || 1;
 		this.value = props.defaultValue || 0;
 		window.addEventListener("resize", this.resize, false);
 		this.bindTouch();
@@ -96,7 +96,7 @@ class Scaler {
 
 	private bindTouch() {
 		const self = this;
-		this.toucher = new PhyTouch({
+		this.animation = new PhyTouch({
 			touch: this.canvas, //反馈触摸的dom
 			vertical: false, //不必需，默认是true代表监听竖直方向touch
 			// target: this, //运动的对象
@@ -110,7 +110,7 @@ class Scaler {
 			step: 0.01, //用于校正到step的整数倍
 			// bindSelf: false,
 			// maxSpeed: 1, //不必需，触摸反馈的最大速度限制
-			value: 0,
+			value: self._value,
 			time: 300,
 			change: throttle((value: number) => {
 				self.value = Math.floor(value);
@@ -131,7 +131,7 @@ class Scaler {
 		this.render();
 	}
 	to(target: number, duration?: number) {
-		this.toucher.to(target, duration);
+		this.animation.to(target, duration);
 	}
 	destory() {
 		window.removeEventListener("resize", this.resize, false);
@@ -145,8 +145,9 @@ class Scaler {
 		t--;
 		return (-c / 2) * (t * (t - 2) - 1) + b;
 	}
+
 	get value() {
-		return this._value;
+		return this.fixValue(this._value);
 	}
 	set value(n: number) {
 		// const distance = Math.abs(n) - Math.abs(this.value);
@@ -158,18 +159,18 @@ class Scaler {
 		// this.__timer = setInterval(() => {
 		// 	time += 1 / fps;
 		// 	const v = this.easeInOutQuad(time, start, distance, duration);
-		// 	this._value = this.precisionize(n + v);
+		// 	this._value = this.fixValue(n + v);
 		// 	if (v >= distance) {
 		// 		clearInterval(this.__timer);
 		// 	}
 		// 	this.render();
 		// }, 1000 / fps);
 
-		this._value = this.precisionize(n);
+		this._value = this.fixValue(n);
 		this.render();
 	}
 	get precision() {
-		return Math.pow(10, this.decimal);
+		return Math.pow(10, this.scale);
 	}
 	get length() {
 		return Math.ceil(this.canvas.width / mm2px);
@@ -181,7 +182,7 @@ class Scaler {
 		return Math.floor(this.height / 2);
 	}
 	/** 处理精度 */
-	private precisionize(n: number) {
+	private fixValue(n: number) {
 		return Math.round(n * this.precision) / this.precision;
 	}
 
@@ -256,4 +257,4 @@ declare class PhyTouch {
 // 	scaler.to(n++);
 // }, 1000 / 60);
 
-// console.log(scaler.toucher);
+// console.log(scaler.animation);
