@@ -7,8 +7,10 @@ interface ScalerProps {
 	width?: number;
 	height?: number;
 	background?: string;
-
+	fps?: number;
 	onUpdate?(value: number): void;
+	drawText?(value: number): void;
+	drawScale?(value: number): void;
 }
 
 function throttle(func: Function, limit: number) {
@@ -24,15 +26,26 @@ function throttle(func: Function, limit: number) {
 	};
 }
 
+function getPrecision(scale: number) {
+	const decimal = scale.toString().split(".")[1]?.length || 0;
+	return Math.pow(10, decimal);
+}
+
+function precisionize(n: number, precision: number) {
+	return Math.round(n * precision) / precision;
+}
+
 class Scaler {
 	declare canvas: HTMLCanvasElement;
 	declare ctx: CanvasRenderingContext2D;
 	declare scale: number;
 	declare width: number;
 	declare height: number;
+	declare fps: number;
 	declare animation: any;
 
 	private _value = 0;
+	private precision = 0;
 
 	constructor(props: ScalerProps) {
 		this.init(props);
@@ -40,7 +53,9 @@ class Scaler {
 		this.setSize();
 		this.setGlobalStyle();
 		this.scale = props.scale || 1;
+		this.precision = getPrecision(this.scale);
 		this.value = props.defaultValue || 0;
+		this.fps = props.fps || 40;
 		window.addEventListener("resize", this.resize, false);
 		this.bindTouch();
 		new TouchEvents(this.canvas);
@@ -103,26 +118,23 @@ class Scaler {
 			// property: "value", //被运动的属性
 			min: 0, //不必需,运动属性的最小值
 			// max: 100, //不必需,滚动属性的最大值
-			sensitivity: -1, //不必需,触摸区域的灵敏度，默认值为1，可以为负数
-			factor: 0.5, //不必需,表示触摸位移运动位移与被运动属性映射关系，默认值是1
-			moveFactor: 0.5, //不必需,表示touchmove位移与被运动属性映射关系，默认值是1
-			// outFactor: 0.1,
+			sensitivity: -1, //递增递减的方向
+			factor: 1, //不必需,表示触摸位移运动位移与被运动属性映射关系，默认值是1
+			moveFactor: 0.1, //不必需,表示touchmove位移与被运动属性映射关系，默认值是1
+			outFactor: 0.1,
 			step: 0.01, //用于校正到step的整数倍
+			deceleration: 0.004, // 惯性
 			// bindSelf: false,
 			// maxSpeed: 1, //不必需，触摸反馈的最大速度限制
 			value: self._value,
 			time: 300,
-			change: throttle((value: number) => {
-				self.value = Math.floor(value);
-			}, 1000 / 30),
+			change: throttle(self.setValue, 1000 / self.fps),
 			// touchStart(evt: TouchEvent, value: number) {},
 			// touchMove(evt: TouchEvent, value: number) {},
 			// touchEnd(evt: TouchEvent, value: number) {},
 			// tap(evt: TouchEvent, value: number) {},
 			// pressMove(evt: TouchEvent, value: number) {},
-			animationEnd(value: number) {
-				self.value = Math.floor(value);
-			},
+			animationEnd: self.setValue,
 		});
 	}
 
@@ -138,40 +150,17 @@ class Scaler {
 		this.canvas = null as any;
 		this.ctx = null as any;
 	}
-	private __timer = 0;
-	private easeInOutQuad(t: number, b: number, c: number, d: number) {
-		t /= d / 2;
-		if (t < 1) return (c / 2) * t * t + b;
-		t--;
-		return (-c / 2) * (t * (t - 2) - 1) + b;
-	}
 
 	get value() {
 		return this.fixValue(this._value);
 	}
 	set value(n: number) {
-		// const distance = Math.abs(n) - Math.abs(this.value);
-		// let time = 0;
-		// let duration = 2;
-		// let start = 0;
-		// let fps = 30;
-
-		// this.__timer = setInterval(() => {
-		// 	time += 1 / fps;
-		// 	const v = this.easeInOutQuad(time, start, distance, duration);
-		// 	this._value = this.fixValue(n + v);
-		// 	if (v >= distance) {
-		// 		clearInterval(this.__timer);
-		// 	}
-		// 	this.render();
-		// }, 1000 / fps);
-
 		this._value = this.fixValue(n);
 		this.render();
 	}
-	get precision() {
-		return Math.pow(10, this.scale);
-	}
+	setValue = (n: number) => {
+		this.value = n;
+	};
 	get length() {
 		return Math.ceil(this.canvas.width / mm2px);
 	}
@@ -183,35 +172,42 @@ class Scaler {
 	}
 	/** 处理精度 */
 	private fixValue(n: number) {
+		console.log(n);
+
 		return Math.round(n * this.precision) / this.precision;
 	}
 
-	private drawScale(ctx: CanvasRenderingContext2D, value: number, x: number, y: number, h: number) {
+	private drawScale(ctx: CanvasRenderingContext2D, x: number, y: number, h: number) {
 		ctx.moveTo(x, y);
 		ctx.lineTo(x, y - h);
 	}
 
 	private drawText(ctx: CanvasRenderingContext2D, value: number, x: number, y: number, h: number) {
+		// console.log(value);
 		ctx.fillText(value.toString(), x, y - h);
 	}
 	/** 绘制刻度 */
 	private drawScales() {
-		const { ctx, cx, height, length, drawScale, drawText } = this;
+		const { ctx, cx, height, length, drawScale, drawText, scale, precision } = this;
 		const half = Math.ceil(length / 2);
-		const value = this.value;
+		const value = Math.floor(this.value);
+		const decimal = Math.round((this.value % 1) * mm2px);
+		const centry = cx + decimal;
+
 		ctx.beginPath();
 		for (let i = 0; i < length; i++) {
-			const x = i < half ? Math.round(cx - i * mm2px) : Math.round(cx + (i - half) * mm2px);
+			const x = Math.round(i < half ? centry - i * mm2px : centry + (i - half) * mm2px);
 			const val = i < half ? value - i : value + i - half;
+			const text = precisionize(val * scale, precision);
+
 			let h = 4;
 			if (val % 10 === 0) {
 				h = 10;
-				drawText(ctx, val, x, height, 18);
+				drawText(ctx, text, x, height, 18);
 			} else if (val % 5 === 0) {
 				h = 7;
 			}
-
-			drawScale(ctx, val, x, height, h);
+			drawScale(ctx, x, height, h);
 		}
 
 		ctx.stroke();
@@ -231,8 +227,6 @@ class Scaler {
 	}
 	/** 整体绘制 */
 	render() {
-		console.log("draw");
-
 		this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 		this.drawOrigin();
 		this.drawScales();
@@ -242,7 +236,8 @@ class Scaler {
 const scaler = new Scaler({
 	element: "#app",
 	background: "#000",
-	defaultValue: 0,
+	defaultValue: 5.4,
+	scale: 0.02,
 });
 
 interface PhyTouch {
