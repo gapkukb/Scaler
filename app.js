@@ -95,7 +95,7 @@ class Scaler {
             // property: "value", //被运动的属性
             min: 0,
             // max: 100, //不必需,滚动属性的最大值
-            sensitivity: -1,
+            // sensitivity: -1, //递增递减的方向,也可以实现reverse效果
             factor: 1,
             moveFactor: 0.1,
             outFactor: 0.1,
@@ -105,6 +105,7 @@ class Scaler {
             // maxSpeed: 1, //不必需，触摸反馈的最大速度限制
             value: self._value,
             time: 300,
+            reverse: true,
             change: throttle(self.setValue, 1000 / self.fps),
             // touchStart(evt: TouchEvent, value: number) {},
             // touchMove(evt: TouchEvent, value: number) {},
